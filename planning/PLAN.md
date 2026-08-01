@@ -454,3 +454,27 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 - Portfolio visualization: heatmap renders with correct colors, P&L chart has data points
 - AI chat (mocked): send a message, receive a response, trade execution appears inline
 - SSE resilience: disconnect and verify reconnection
+
+---
+
+## 13. Doc Review Notes (2026-08-01)
+
+Findings from a review of this plan against the current repo state (market-data component built under `backend/app/market/`; portfolio, watchlist, chat, db, and frontend not yet started). Not part of the spec — for the team to resolve, then this section can be trimmed or deleted.
+
+### Feedback
+
+- **`.env.example` is referenced as committed (§4 tree, and root `README.md`'s `cp .env.example .env`) but doesn't exist in the repo yet.** Anyone following the README today hits a dead end. (`OPENROUTER_API_KEY`/`MASSIVE_API_KEY` in §5 itself are already correctly placeholders, not live values — no issue there.)
+- **`.gitignore` doesn't actually cover `db/finally.db`.** The §4 tree comment asserts "`finally.db` is gitignored," but the current `.gitignore` only has a literal `db.sqlite3` entry (Django boilerplate), which won't match `db/finally.db`. Not urgent since `db/` doesn't exist yet, but it should be added before the DB layer lands, or the real database file could get committed.
+
+### Questions / Clarifications
+
+- **Stale prices for positions dropped from the watchlist — now a concrete implementation risk, not just a spec gap.** §6 says the SSE stream covers "all tickers known to the system... equivalent to the user's watchlist." The already-built `PriceCache.remove(ticker)` (`backend/app/market/cache.py`) is explicitly documented as being called "when removed from watchlist." If the future watchlist-delete endpoint wires up `remove()` as-is, a held position's price (and therefore its P&L and the portfolio's total value) would go stale or disappear the moment its ticker leaves the watchlist. Worth stating explicitly in the spec — e.g., "the cache/stream must keep tracking any ticker with an open position, regardless of watchlist membership; only evict on watchlist removal if there's no open position" — before the watchlist and portfolio endpoints are wired together.
+- **Chat history window.** §9 says the backend "loads recent conversation history from `chat_messages`" — how many messages, or what token/time bound? A concrete limit would bound both LLM cost and context size.
+- **Multi-trade validation order.** When the LLM returns multiple `trades` in one structured response (§9), are they validated/executed sequentially against the updating cash balance (so two buys can't jointly overspend), or all against the pre-trade snapshot? Worth a one-line clarification.
+- **Fractional share input in the UI.** The schema supports fractional `quantity` (§7), but §10's trade bar just describes a "quantity field" — should the frontend accept decimals, or is fractional support LLM-only (for chat-driven trades)?
+- **Malformed LLM output at the product level.** §12 tests for "graceful handling of malformed responses," but the spec itself (§9) doesn't say what the user actually sees in that case — a generic error message in chat, a retry, or something else?
+
+### Simplification Opportunities
+
+- **Root `docker-compose.yml` (§4, §11) may be redundant.** With a single container and no other services, `docker run ...` (already shown in §11) does the same job. Since `test/` already has its own `docker-compose.test.yml` for the Playwright setup, the root compose file might not earn its keep — consider dropping it unless there's a concrete reason (e.g., local dev convenience) to keep it.
+- **Universal `user_id="default"` column.** Every table carries a `user_id` column purely to ease a hypothetical future multi-user migration (§7). That's a reasonable bet, but worth a deliberate go/no-go: if multi-user is genuinely out of scope for this course project, dropping the column now (and adding it later via migration, if ever needed) removes a small amount of boilerplate from every query without losing anything today.
