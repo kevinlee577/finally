@@ -101,7 +101,6 @@ finally/
 ├── db/                       # Volume mount target (SQLite file lives here at runtime)
 │   └── .gitkeep              # Directory exists in repo; finally.db is gitignored
 ├── Dockerfile                # Multi-stage build (Node → Python)
-├── docker-compose.yml        # Optional convenience wrapper
 ├── .env                      # Environment variables (gitignored, .env.example committed)
 └── .gitignore
 ```
@@ -178,6 +177,7 @@ Both the simulator and the Massive client implement the same abstract interface.
 - Server pushes price updates for all tickers known to the system at a regular cadence (~500ms) — in the single-user model this is equivalent to the user's watchlist
 - Each SSE event contains ticker, price, previous price, timestamp, and change direction
 - Client handles reconnection automatically (EventSource has built-in retry)
+- **Held positions are always tracked regardless of watchlist membership.** Removing a ticker from the watchlist only evicts it from the price cache/stream if the user has no open position in it. If a position is still open, the cache keeps updating that ticker (so portfolio valuation and P&L stay live) until the position is fully closed.
 
 ---
 
@@ -290,7 +290,7 @@ There is an OPENROUTER_API_KEY in the .env file in the project root.
 When the user sends a chat message, the backend:
 
 1. Loads the user's current portfolio context (cash, positions with P&L, watchlist with live prices, total portfolio value)
-2. Loads recent conversation history from the `chat_messages` table
+2. Loads recent conversation history from the `chat_messages` table — the last 20 messages (10 user/assistant turns), oldest-first
 3. Constructs a prompt with a system message, portfolio context, conversation history, and the user's new message
 4. Calls the LLM via LiteLLM → OpenRouter, requesting structured output, using the cerebras-inference skill
 5. Parses the complete structured JSON response
@@ -315,7 +315,7 @@ The LLM is instructed to respond with JSON matching this schema:
 ```
 
 - `message` (required): The conversational text shown to the user
-- `trades` (optional): Array of trades to auto-execute. Each trade goes through the same validation as manual trades (sufficient cash for buys, sufficient shares for sells)
+- `trades` (optional): Array of trades to auto-execute. Each trade goes through the same validation as manual trades (sufficient cash for buys, sufficient shares for sells). Trades are validated and executed sequentially, in the order returned, each against the cash/position balance as updated by the prior trades in the same batch — so two buys can't jointly overspend cash that only one of them actually has.
 - `watchlist_changes` (optional): Array of watchlist modifications
 
 ### Auto-Execution
@@ -326,6 +326,10 @@ Trades specified by the LLM execute automatically — no confirmation dialog. Th
 - It demonstrates agentic AI capabilities — the core theme of the course
 
 If a trade fails validation (e.g., insufficient cash), the error is included in the chat response so the LLM can inform the user.
+
+### Malformed LLM Output
+
+If the LLM's response fails to parse as valid structured output, no trades or watchlist changes are executed. The chat shows a generic, plain-language error message (e.g. "Sorry, I had trouble processing that — please try again") in place of an assistant reply. No automatic retry.
 
 ### System Prompt Guidance
 
@@ -357,7 +361,7 @@ The frontend is a single-page application with a dense, terminal-inspired layout
 - **Portfolio heatmap** — treemap visualization where each rectangle is a position, sized by portfolio weight, colored by P&L (green = profit, red = loss)
 - **P&L chart** — line chart showing total portfolio value over time, using data from `portfolio_snapshots`
 - **Positions table** — tabular view of all positions: ticker, quantity, avg cost, current price, unrealized P&L, % change
-- **Trade bar** — simple input area: ticker field, quantity field, buy button, sell button. Market orders, instant fill.
+- **Trade bar** — simple input area: ticker field, quantity field, buy button, sell button. Market orders, instant fill. Quantity field accepts fractional (decimal) input, consistent with chat-driven trades — one shared quantity handling path regardless of entry point.
 - **AI chat panel** — docked/collapsible sidebar. Message input, scrolling conversation history, loading indicator while waiting for LLM response. Trade executions and watchlist changes shown inline as confirmations.
 - **Header** — portfolio total value (updating live), connection status indicator, cash balance
 
@@ -468,13 +472,13 @@ Findings from a review of this plan against the current repo state (market-data 
 
 ### Questions / Clarifications
 
-- **Stale prices for positions dropped from the watchlist — now a concrete implementation risk, not just a spec gap.** §6 says the SSE stream covers "all tickers known to the system... equivalent to the user's watchlist." The already-built `PriceCache.remove(ticker)` (`backend/app/market/cache.py`) is explicitly documented as being called "when removed from watchlist." If the future watchlist-delete endpoint wires up `remove()` as-is, a held position's price (and therefore its P&L and the portfolio's total value) would go stale or disappear the moment its ticker leaves the watchlist. Worth stating explicitly in the spec — e.g., "the cache/stream must keep tracking any ticker with an open position, regardless of watchlist membership; only evict on watchlist removal if there's no open position" — before the watchlist and portfolio endpoints are wired together.
-- **Chat history window.** §9 says the backend "loads recent conversation history from `chat_messages`" — how many messages, or what token/time bound? A concrete limit would bound both LLM cost and context size.
-- **Multi-trade validation order.** When the LLM returns multiple `trades` in one structured response (§9), are they validated/executed sequentially against the updating cash balance (so two buys can't jointly overspend), or all against the pre-trade snapshot? Worth a one-line clarification.
-- **Fractional share input in the UI.** The schema supports fractional `quantity` (§7), but §10's trade bar just describes a "quantity field" — should the frontend accept decimals, or is fractional support LLM-only (for chat-driven trades)?
-- **Malformed LLM output at the product level.** §12 tests for "graceful handling of malformed responses," but the spec itself (§9) doesn't say what the user actually sees in that case — a generic error message in chat, a retry, or something else?
+- ~~**Stale prices for positions dropped from the watchlist.**~~ **Resolved (§6):** held positions are always tracked regardless of watchlist membership; the cache only evicts a ticker on watchlist removal once there's no open position in it. The watchlist-delete endpoint must check for an open position before calling `PriceCache.remove()`.
+- ~~**Chat history window.**~~ **Resolved (§9):** last 20 messages (10 turns), fixed count.
+- ~~**Multi-trade validation order.**~~ **Resolved (§9):** sequential, each trade validated against the balance as updated by prior trades in the same batch.
+- ~~**Fractional share input in the UI.**~~ **Resolved (§10):** the trade bar quantity field accepts decimals, same as chat-driven trades.
+- ~~**Malformed LLM output at the product level.**~~ **Resolved (§9):** generic plain-language error shown in chat, no auto-retry, no actions executed.
 
 ### Simplification Opportunities
 
-- **Root `docker-compose.yml` (§4, §11) may be redundant.** With a single container and no other services, `docker run ...` (already shown in §11) does the same job. Since `test/` already has its own `docker-compose.test.yml` for the Playwright setup, the root compose file might not earn its keep — consider dropping it unless there's a concrete reason (e.g., local dev convenience) to keep it.
-- **Universal `user_id="default"` column.** Every table carries a `user_id` column purely to ease a hypothetical future multi-user migration (§7). That's a reasonable bet, but worth a deliberate go/no-go: if multi-user is genuinely out of scope for this course project, dropping the column now (and adding it later via migration, if ever needed) removes a small amount of boilerplate from every query without losing anything today.
+- ~~**Root `docker-compose.yml` may be redundant.**~~ **Resolved:** dropped from §4. `docker run ...` (§11) is sufficient; `test/docker-compose.test.yml` remains the only compose file in the repo.
+- ~~**Universal `user_id="default"` column.**~~ **Resolved:** keep as-is (§7). Minimal boilerplate cost today, avoids a future migration if multi-user is ever pursued.
