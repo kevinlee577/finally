@@ -19,7 +19,7 @@ Single Docker container serving everything on port 8000:
 
 - **Frontend**: Next.js (static export) with TypeScript and Tailwind CSS
 - **Backend**: FastAPI (Python/uv) with SSE streaming
-- **Database**: SQLite with lazy initialization
+- **Database**: SQLite, initialized during backend startup
 - **AI**: LiteLLM → OpenRouter (Cerebras inference) with structured outputs
 - **Market data**: Built-in GBM simulator (default) or Massive API (optional)
 
@@ -32,7 +32,7 @@ cp .env.example .env
 
 # Run with Docker
 docker build -t finally .
-docker run -v finally-data:/app/db -p 8000:8000 --env-file .env finally
+docker run --name finally -v "$(pwd)/db:/app/db" -p 8000:8000 --env-file .env finally
 
 # Open http://localhost:8000
 ```

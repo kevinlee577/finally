@@ -61,6 +61,12 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# FinAlly runtime SQLite database (see planning/PLAN.md §7)
+/db/*.db
+/db/*.db-wal
+/db/*.db-shm
+/db/*.db-journal
+
 # Flask stuff:
 instance/
 .webassets-cache
