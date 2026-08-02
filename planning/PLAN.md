@@ -140,6 +140,7 @@ LLM_MOCK=false
 - If `LLM_MOCK=true` → backend returns deterministic mock LLM responses (for E2E tests)
 - If `OPENROUTER_API_KEY` is absent or empty and `LLM_MOCK` is not `"true"` → the backend still starts and serves prices, portfolio, and watchlist normally (§2's first-launch promise holds for everything except chat). `POST /api/chat` returns `503` with `{"error": {"code": "chat_unavailable", "message": "AI chat is not configured — set OPENROUTER_API_KEY to enable it."}}` instead of calling the LLM, and the chat panel UI renders a disabled state with that message rather than a generic error. The app does **not** fail to start over a missing chat key — only chat itself degrades.
 - The backend reads `.env` from the project root (mounted into the container or read via docker `--env-file`)
+- Three additional environment variables exist for deployment/testing and are intentionally omitted from `.env.example` (they have sensible production defaults and aren't secrets): `DB_PATH` (§11, default `/app/db/finally.db`), `MARKET_TICK_SECONDS` and `SNAPSHOT_INTERVAL_SECONDS` (§12, defaulting to the production ~500ms/30s values). `test/docker-compose.test.yml` overrides all three for fast, isolated E2E runs.
 
 ---
 
@@ -187,7 +188,7 @@ The set of tickers a `MarketDataSource` actively tracks (and therefore appears i
 A trade (`POST /api/portfolio/trade`, or an LLM-issued trade) is permitted for **any syntactically valid ticker** (normalized per §8), not just symbols already on the watchlist — a user can buy a ticker they've never watchlisted. However, a trade always requires a quote:
 
 - If the ticker has no entry in the `PriceCache` yet, the handler first calls `source.add_ticker(ticker)` (idempotent — safe even if already tracked) and rejects the trade immediately with `quote_unavailable` (§8) rather than blocking until a quote appears. The client can retry after the next SSE tick shows a price for that ticker (simulator: ~500ms; Massive: up to the poll interval, up to 15s on the free tier — Massive may also simply never return a quote for an invalid/delisted symbol, in which case the ticker stays permanently in `quote_unavailable` state, which is an acceptable outcome for this app, not an error to special-case further).
-- This means `unknown_ticker` (§8) and `quote_unavailable` (§8) are distinct failure modes: `unknown_ticker` is for `DELETE /api/watchlist/{ticker}` on a ticker not on the list, or a sell for a ticker with no open position — an operation on something that doesn't exist in the DB. `quote_unavailable` is for a trade on a ticker that exists (or was just newly tracked) but has no price yet. Neither implies the other.
+- This means `not_watchlisted`/`no_position` (§8) and `quote_unavailable` (§8) are distinct failure modes: `not_watchlisted`/`no_position` are for an operation on something that doesn't exist in the DB (`DELETE /api/watchlist/{ticker}` on a ticker not on the list, or a sell for a ticker with no open position). `quote_unavailable` is for a trade on a ticker that exists (or was just newly tracked) but has no price yet. Neither implies the other.
 
 ### SSE Streaming
 
@@ -534,7 +535,7 @@ Stage 2: Python 3.12 slim
   - uv sync --frozen --no-dev (production install from the lockfile; no dev/test extras — contrast with `uv sync --extra dev` for local backend development per backend/CLAUDE.md)
   - Copy frontend/out/ (Stage 1's export) to /app/static
   - Expose port 8000
-  - CMD: uvicorn app.main:app --host 0.0.0.0 --port 8000 (single process, no --workers — required by §7's "Transactions & Concurrency")
+  - CMD: uvicorn serving the FastAPI app on `0.0.0.0:8000` (the exact `module:app` path is up to the Backend agent, per §4's "internal structure" note) — single process, no `--workers` flag, required by §7's "Transactions & Concurrency"
 ```
 
 FastAPI serves the static frontend files (from `/app/static`) and all API routes on port 8000. Route precedence is fixed: `/api/*` and `/api/stream/*` routers are registered first, so an unmatched path under `/api/` always returns a JSON `404` in the §8 error envelope — it never falls through to the frontend's `index.html`. Every other path (including unknown ones, since this is a single-page app with client-side routing) falls through to serving the static export's `index.html`; static assets (`_next/`, etc.) are served directly by path.

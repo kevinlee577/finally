@@ -41,7 +41,7 @@ docker run --name finally -v "$(pwd)/db:/app/db" -p 8000:8000 --env-file .env fi
 
 | Variable | Required | Description |
 |---|---|---|
-| `OPENROUTER_API_KEY` | Yes | OpenRouter API key for AI chat |
+| `OPENROUTER_API_KEY` | No | OpenRouter API key for AI chat. The app runs fully without it — prices, portfolio, and watchlist all work — but the chat panel is disabled until it's set (see `planning/PLAN.md` §5) |
 | `MASSIVE_API_KEY` | No | Massive (Polygon.io) key for real market data; omit to use simulator |
 | `LLM_MOCK` | No | Set `true` for deterministic mock LLM responses (testing) |
 
