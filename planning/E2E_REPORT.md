@@ -9,24 +9,33 @@
 
 ## Result
 
-**53 / 53 passing**, against an image built from scratch with `--no-cache`.
-Containerised run exits `0`.
+**53 / 53 passing at commit `f2dccba`**, against an image built from a clean
+working tree at that revision. Containerised run exits `0`.
 
 ```
-docker compose -f test/docker-compose.test.yml build --no-cache
+git log --oneline -1        -> f2dccba Build the full FinAlly application via an agent team
+git status --porcelain      -> (empty: tree matches the commit exactly)
+docker compose -f test/docker-compose.test.yml build     -> image 01:02:37, newer than every source file
 docker compose -f test/docker-compose.test.yml up \
   --abort-on-container-exit --exit-code-from playwright
 ...
-playwright-1  | [sse] 30 events in 3.0s = 9.9/sec
-playwright-1  |   53 passed (1.1m)
+playwright-1  | [sse] 31 events in 3.1s = 10.1/sec
+playwright-1  |   53 passed (1.2m)
 EXIT=0
 ```
+
+This is the first run that can be pinned to a revision rather than to a
+timestamp. An earlier 53/53 (from a `--no-cache` build, 9.9 events/sec) was
+taken before `f2dccba`'s last four files landed — the frontend tsconfig split —
+so it is superseded by the result above rather than being the baseline for the
+commit.
 
 Verified in both environments:
 
 | Environment | Result |
 |---|---|
-| Full compose stack, from-scratch `--no-cache` image (§12's intended path) | 53/53 passed, 1.1m |
+| Compose stack at `f2dccba`, clean tree (§12's intended path) | 53/53 passed, 1.2m |
+| Compose stack, from-scratch `--no-cache` image (pre-commit) | 53/53 passed, 1.1m |
 | Host run against `uvicorn` + the real Next.js static export | 53/53 passed, 56.9s |
 
 Both used a freshly seeded database, `LLM_MOCK=true`, `MARKET_TICK_SECONDS=0.1`,
@@ -53,19 +62,24 @@ caching problem — as an earlier draft of this report did — was imprecise, an
 the difference matters: a caching bug would need a tooling fix, whereas this
 needs only a habit.
 
-Nothing in this project is committed yet (`git log` still shows *Ready for
-Teams*), so image contents cannot be pinned to a revision and "is this result
-current?" cannot be answered from git. The practice adopted instead, and used
-for every result in this report:
+For most of this cycle nothing was committed, so image contents could not be
+pinned to a revision and "is this result current?" could not be answered from
+git. The practice adopted instead was:
 
 1. Rebuild.
 2. Verify every source file under `frontend/` and `backend/` is older than the
    image timestamp.
 3. Only then treat the run as describing current code.
 
-**A green suite against an out-of-date image is worse than a red one** — it
-actively asserts something false. Any future "it passes" claim on this project
-needs the same check until there is a commit to pin against.
+`f2dccba` now makes this cheaper and stronger. The headline result was taken
+with `git status --porcelain` empty, so the image was built from a tree
+identical to the commit — the run describes a revision, not a moment in time.
+
+**A green suite against an out-of-date image is worse than a red one**: it
+actively asserts something false. The check that matters is unchanged — confirm
+the tree is clean and the image postdates it — and it is worth repeating for any
+future claim, because a commit only helps if the image was actually built from
+it.
 
 ### Scenario coverage
 
