@@ -1,0 +1,26 @@
+# Normalize line endings so the repo works from Windows and macOS/Linux alike.
+* text=auto
+
+# Files that MUST keep LF regardless of the checkout platform. A shell script
+# or Dockerfile checked out with CRLF fails at runtime:
+#   ./start_mac.sh -> bad interpreter: /usr/bin/env bash^M
+#   Dockerfile RUN lines break the same way inside the Linux build.
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.dockerfile text eol=lf
+.dockerignore text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+
+# PowerShell is Windows-side tooling; CRLF is fine and conventional there.
+*.ps1       text eol=crlf
+
+# Binary assets — never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.db binary

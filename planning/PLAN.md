@@ -90,7 +90,7 @@ This is the **target** layout, not the current repo state. As of this writing on
 finally/
 ├── frontend/                 # Next.js TypeScript project (static export)
 ├── backend/                  # FastAPI uv project (Python)
-│   └── db/                   # Schema definitions, seed data, migration logic
+│   └── app/db/               # Schema definitions, seed data, migration logic
 ├── planning/                 # Project-wide documentation for agents
 │   ├── PLAN.md               # This document
 │   └── ...                   # Additional agent reference docs
@@ -111,7 +111,7 @@ finally/
 
 - **`frontend/`** is a self-contained Next.js project. It knows nothing about Python. It talks to the backend via `/api/*` endpoints and `/api/stream/*` SSE endpoints. Internal structure is up to the Frontend Engineer agent.
 - **`backend/`** is a self-contained uv project with its own `pyproject.toml`. It owns all server logic including database initialization, schema, seed data, API routes, SSE streaming, market data, and LLM integration. Internal structure is up to the Backend/Market Data agents.
-- **`backend/db/`** contains schema SQL definitions and seed logic. The backend initializes the database during FastAPI startup (see §7) — creating tables and seeding default data if the SQLite file doesn't exist or is empty.
+- **`backend/app/db/`** contains schema SQL definitions and seed logic. It lives inside the `app` package rather than at `backend/db/` deliberately: §11's Dockerfile copies `backend/` into the image, and §11's `docker run` then bind-mounts the top-level `db/` directory over `/app/db` at container start — a `backend/db/` directory containing the schema would be shadowed by that runtime mount and vanish. Keeping schema/seed code inside `backend/app/` avoids the collision. The backend initializes the database during FastAPI startup (see §7) — creating tables and seeding default data if the SQLite file doesn't exist or is empty.
 - **`db/`** at the top level is the runtime volume mount point. The SQLite file (`db/finally.db`) is created here by the backend and persists across container restarts via Docker volume.
 - **`planning/`** contains project-wide documentation, including this plan. All agents reference files here as the shared contract.
 - **`test/`** contains Playwright E2E tests and supporting infrastructure (e.g., `docker-compose.test.yml`). Unit tests live within `frontend/` and `backend/` respectively, following each framework's conventions.
@@ -540,6 +540,8 @@ Stage 2: Python 3.12 slim
 
 FastAPI serves the static frontend files (from `/app/static`) and all API routes on port 8000. Route precedence is fixed: `/api/*` and `/api/stream/*` routers are registered first, so an unmatched path under `/api/` always returns a JSON `404` in the §8 error envelope — it never falls through to the frontend's `index.html`. Every other path (including unknown ones, since this is a single-page app with client-side routing) falls through to serving the static export's `index.html`; static assets (`_next/`, etc.) are served directly by path.
 
+**Test files are load-bearing for Stage 1.** `npm run build` runs Next's production `tsc` typecheck over the whole TypeScript project, which by default includes `__tests__/**` — a type error in a test file fails `docker build`, not just `npm test`. The frontend project splits this deliberately: `tsconfig.json` (what `next build` uses) excludes tests, and a separate `tsconfig.test.json` re-includes them so `npm run typecheck` still fully type-checks test code against real app types. Don't assume "it's just a test file" makes a type error build-safe — verify against `tsconfig.json`'s `exclude` list, not intuition.
+
 ### Docker Volume
 
 The SQLite database persists via a **host bind mount** of the repo's `db/` directory (not a named volume — a named volume would not map to the host `db/` directory the rest of this plan describes, e.g. §4's tree and §7's "runtime volume mount point"):
@@ -549,6 +551,8 @@ docker run --name finally -v "$(pwd)/db:/app/db" -p 8000:8000 --env-file .env fi
 ```
 
 (`scripts/start_windows.ps1` uses the PowerShell equivalent, e.g. `${PWD}` or an absolute path, in place of `$(pwd)`.) The backend writes to `/app/db/finally.db` inside the container, configurable via a `DB_PATH` environment variable (default `/app/db/finally.db`) so tests can point at an isolated file (§12). The explicit `--name finally` gives the idempotent start/stop scripts below a stable target for `docker stop`/`docker rm`.
+
+**Git Bash / MSYS trap:** running the raw command above from Git Bash on Windows silently breaks persistence — MSYS path conversion rewrites the container-side `/app/db` argument into a host path (e.g. `C:/Program Files/Git/app/db`), so the mount lands at a bogus destination, the app writes its DB into the container's writable layer instead, and all data is lost on `docker rm` — while the app reports healthy the whole time. Prefix the command with `MSYS_NO_PATHCONV=1` if invoking `docker run` directly from Git Bash, or just use `scripts/start_windows.ps1` (plain PowerShell, unaffected) or `scripts/start_mac.sh` (no MSYS rewriting), which is the recommended path anyway.
 
 ### Start/Stop Scripts
 

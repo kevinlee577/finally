@@ -1,0 +1,50 @@
+# Build context exclusions (see planning/PLAN.md §11).
+# Keep the context small and, critically, keep secrets and host-built
+# artifacts out of the image.
+
+# Secrets — .env is supplied at run time via --env-file, never baked in.
+.env
+.env.*
+!.env.example
+
+# Git / CI / editor
+.git
+.gitignore
+.github
+.claude
+.claude-plugin
+.vscode
+.idea
+
+# Docs & agent planning material (not needed at runtime)
+planning
+independent-reviewer
+*.md
+!backend/README.md
+
+# Runtime SQLite database — the container gets this via bind mount
+db
+
+# Tests live outside the production image (Playwright container instead)
+test
+
+# Python: host virtualenv and caches must never shadow the image's /app/.venv
+backend/.venv
+**/.venv
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+htmlcov
+.coverage
+.coverage.*
+
+# Node: reinstalled inside the build stage; host copies are platform-specific
+frontend/node_modules
+frontend/.next
+frontend/out
+**/node_modules
+
+# Scripts are for the host, not the image
+scripts

@@ -26,6 +26,15 @@ share/python-wheels/
 *.egg
 MANIFEST
 
+# The Python packaging patterns above are unanchored, so they also match inside
+# frontend/ — `lib/` in particular was silently excluding frontend/lib/, which
+# holds real TypeScript source (api.ts, usePriceStream.ts, ...). Re-include the
+# frontend tree; its actual build output is frontend/out/ and .next/, both
+# ignored in the Node section below.
+!frontend/lib/
+!frontend/build/
+!frontend/dist/
+
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
@@ -66,6 +75,24 @@ db.sqlite3-journal
 /db/*.db-wal
 /db/*.db-shm
 /db/*.db-journal
+
+# Node / Next.js frontend build artifacts (see planning/PLAN.md §11).
+# frontend/out/ is produced inside the Docker build stage, never committed.
+node_modules/
+.next/
+out/
+.turbo/
+next-env.d.ts
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Playwright E2E artifacts (see planning/PLAN.md §12)
+/test/test-results/
+/test/playwright-report/
+/test/blob-report/
+/test/.playwright/
 
 # Flask stuff:
 instance/

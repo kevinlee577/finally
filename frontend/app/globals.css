@@ -1,0 +1,360 @@
+@import "tailwindcss";
+
+/* Explicit scan roots: the stylesheet lives under app/, so automatic detection
+   would miss components/ and lib/. */
+@source "../app";
+@source "../components";
+@source "../lib";
+
+/* ---------------------------------------------------------------------------
+   FinAlly design tokens
+
+   One rule governs the palette: green and red mean money, and nothing else.
+   Every other signal — selection, focus, activity, submission — is carried by
+   the brand amber/blue/violet, so a flash of colour on this screen is never
+   ambiguous about whether it is telling you about a gain or about a button.
+--------------------------------------------------------------------------- */
+@theme {
+  --color-void: #0b0e14;
+  --color-panel: #10141d;
+  --color-raised: #161b26;
+  --color-sunken: #0d1017;
+  --color-edge: #1f2634;
+  --color-edge-strong: #2c3546;
+
+  --color-ink: #e6ebf4;
+  --color-dim: #808b9f;
+  --color-faint: #525c6e;
+
+  --color-amber: #ecad0a;
+  --color-blue: #209dd7;
+  --color-violet: #753991;
+
+  --color-up: #3ecf8e;
+  --color-down: #f0616d;
+
+  --font-display: var(--font-archivo), "Archivo", system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), "JetBrains Mono", ui-monospace, monospace;
+}
+
+:root {
+  color-scheme: dark;
+  --rail: 2px;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-void);
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* Digits must never reflow as prices tick. */
+.tnum {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* --- Panel chrome --------------------------------------------------------- */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--color-panel);
+  border: 1px solid var(--color-edge);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  height: 26px;
+  padding: 0 8px 0 10px;
+  border-bottom: 1px solid var(--color-edge);
+  background: var(--color-sunken);
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-dim);
+  white-space: nowrap;
+}
+
+/* The tick: a 2px amber stub that marks every panel head, and grows into the
+   full-height rail on whichever panel holds the selected instrument. */
+.panel-title::before {
+  content: "";
+  width: var(--rail);
+  height: 9px;
+  background: var(--color-edge-strong);
+  transition: background-color 140ms ease, height 140ms ease;
+}
+
+.panel-active .panel-title::before {
+  background: var(--color-amber);
+  height: 13px;
+}
+
+.panel-meta {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--color-faint);
+  white-space: nowrap;
+}
+
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* --- Price flash (§10) ---------------------------------------------------- */
+
+/* The flash is an overlay so it never fights row hover or selection state. It
+   reads as a directional wipe from the left rail, not a full-cell wash. */
+.flash {
+  position: relative;
+  isolation: isolate;
+}
+
+.flash::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0;
+}
+
+/* Ticks land every ~500ms, so a long or heavy flash reads as a permanent tint
+   rather than an event. Kept short and light: a brief wipe off the left rail
+   that is gone well before the next tick. */
+.flash-up::after {
+  animation: flash-up 420ms ease-out;
+}
+
+.flash-down::after {
+  animation: flash-down 420ms ease-out;
+}
+
+@keyframes flash-up {
+  0% {
+    opacity: 1;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--color-up) 17%, transparent), transparent 55%);
+    box-shadow: inset 2px 0 0 var(--color-up);
+  }
+  100% {
+    opacity: 0;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--color-up) 17%, transparent), transparent 55%);
+    box-shadow: inset 2px 0 0 var(--color-up);
+  }
+}
+
+@keyframes flash-down {
+  0% {
+    opacity: 1;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--color-down) 17%, transparent), transparent 55%);
+    box-shadow: inset 2px 0 0 var(--color-down);
+  }
+  100% {
+    opacity: 0;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--color-down) 17%, transparent), transparent 55%);
+    box-shadow: inset 2px 0 0 var(--color-down);
+  }
+}
+
+/* --- Controls ------------------------------------------------------------- */
+
+.field {
+  height: 26px;
+  padding: 0 8px;
+  background: var(--color-sunken);
+  border: 1px solid var(--color-edge-strong);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  outline: none;
+}
+
+.field::placeholder {
+  color: var(--color-faint);
+  letter-spacing: 0.08em;
+}
+
+.field:focus-visible {
+  border-color: var(--color-blue);
+  box-shadow: 0 0 0 1px var(--color-blue);
+}
+
+.btn {
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid var(--color-edge-strong);
+  background: var(--color-raised);
+  color: var(--color-ink);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--color-faint);
+  background: #1c2231;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-buy {
+  border-color: color-mix(in srgb, var(--color-up) 45%, transparent);
+  color: var(--color-up);
+}
+
+.btn-buy:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-up) 14%, transparent);
+  border-color: var(--color-up);
+}
+
+.btn-sell {
+  border-color: color-mix(in srgb, var(--color-down) 45%, transparent);
+  color: var(--color-down);
+}
+
+.btn-sell:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-down) 14%, transparent);
+  border-color: var(--color-down);
+}
+
+/* Amber marks the one action worth taking right now — currently only the
+   reconnect control beside a red feed indicator. Defined here rather than as
+   Tailwind utilities because `.btn` above is an unlayered rule and would win
+   over them. */
+.btn-alert {
+  border-color: color-mix(in srgb, var(--color-amber) 55%, transparent);
+  color: var(--color-amber);
+}
+
+.btn-alert:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-amber) 12%, transparent);
+  border-color: var(--color-amber);
+}
+
+/* Violet is the submit colour per §2 — used only where a request is sent. */
+.btn-submit {
+  background: var(--color-violet);
+  border-color: var(--color-violet);
+  color: #f6eefb;
+}
+
+.btn-submit:hover:not(:disabled) {
+  background: #8a44ab;
+  border-color: #8a44ab;
+}
+
+:where(button, input, textarea, a):focus-visible {
+  outline: 1px solid var(--color-amber);
+  outline-offset: 1px;
+}
+
+/* --- Data tables ---------------------------------------------------------- */
+
+.grid-head {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.row-hover:hover {
+  background: var(--color-raised);
+}
+
+/* --- Scrollbars ----------------------------------------------------------- */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-edge-strong) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-edge-strong);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-faint);
+}
+
+/* --- Motion --------------------------------------------------------------- */
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.dot-pulse {
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+@keyframes think {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+.think-dot {
+  animation: think 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

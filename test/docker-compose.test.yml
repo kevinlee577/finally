@@ -1,0 +1,92 @@
+# FinAlly E2E test stack (PLAN.md §12).
+#
+# Spins up the production app image plus a Playwright container, so browser
+# dependencies stay out of the production image.
+#
+# Usage (from the repo root):
+#   docker compose -f test/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from playwright
+#   docker compose -f test/docker-compose.test.yml down -v
+#
+# The `run_e2e` scripts in this directory wrap those commands.
+
+name: finally-e2e
+
+services:
+  # NOTE: deliberately not named `app`. Chromium ships `app` in its HSTS
+  # preload list, so it force-upgrades http://app:8000 to HTTPS and every
+  # page.goto() dies with ERR_SSL_PROTOCOL_ERROR (API calls, which bypass the
+  # browser, still work — which makes it a confusing failure to diagnose).
+  finally-app:
+    build:
+      # Build context is the repo root so the multi-stage Dockerfile can see
+      # both frontend/ and backend/ (PLAN.md §11).
+      context: ..
+      dockerfile: Dockerfile
+    image: finally:e2e
+    environment:
+      # --- PLAN.md §12 "Determinism & Test Hooks" ---
+      # Deterministic, free, offline chat responses.
+      LLM_MOCK: "true"
+      # Explicitly empty: proves the app still starts and that chat_enabled is
+      # driven by LLM_MOCK alone (§5/§8). Never mount the real .env here.
+      OPENROUTER_API_KEY: ""
+      # Empty => built-in GBM simulator rather than the Massive API (§6).
+      MASSIVE_API_KEY: ""
+      # Isolated database: a tmpfs path, so every run starts from a freshly
+      # seeded schema and never touches a developer's db/finally.db (§12).
+      DB_PATH: /e2e-db/finally.db
+      # Fast intervals so tests don't wait out production timings (§12).
+      # Production defaults are ~0.5s and 30s respectively.
+      MARKET_TICK_SECONDS: "0.1"
+      SNAPSHOT_INTERVAL_SECONDS: "1"
+    tmpfs:
+      # mode=1777 so the app can write regardless of the UID it runs as.
+      - /e2e-db:mode=1777
+    expose:
+      - "8000"
+    ports:
+      # Published so a developer can also run the suite from the host and
+      # eyeball the app. Defaults to 8001, NOT 8000: the dev container from
+      # `scripts/start_*` binds 8000, and a collision fails the whole stack
+      # with "port is already allocated". Override with E2E_HOST_PORT.
+      - "${E2E_HOST_PORT:-8001}:8000"
+    healthcheck:
+      # Polls GET /api/health until status == "ok" (§8/§12 readiness).
+      # Uses python rather than curl/wget, which the slim image may not carry.
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import json, sys, urllib.request
+          try:
+              with urllib.request.urlopen("http://localhost:8000/api/health", timeout=3) as r:
+                  sys.exit(0 if json.load(r).get("status") == "ok" else 1)
+          except Exception:
+              sys.exit(1)
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.62.1-noble
+    depends_on:
+      finally-app:
+        condition: service_healthy
+    environment:
+      BASE_URL: http://finally-app:8000
+      CI: "true"
+    volumes:
+      - .:/test
+      # Keep container-installed node_modules out of the host bind mount:
+      # the host may be Windows/macOS with incompatible native binaries.
+      - e2e-node-modules:/test/node_modules
+    working_dir: /test
+    # Chromium needs a large /dev/shm; ipc:host is the documented fix.
+    ipc: host
+    command: >
+      sh -c "npm install --no-audit --no-fund && npx playwright test"
+
+volumes:
+  e2e-node-modules:

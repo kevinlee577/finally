@@ -1,0 +1,25 @@
+{
+  // Type-checks the test suite *against* the real app types, but is not used by
+  // `next build`. Test files are deliberately excluded from tsconfig.json:
+  // `next build` runs tsc over whatever that config includes, so without this
+  // split a type error in a test — code that never ships — fails the production
+  // Docker image build.
+  //
+  // `incremental` is off so this can never pass off a stale tsbuildinfo. A
+  // local check that succeeds while a clean container build fails is the worst
+  // kind of asymmetry, and the suite is small enough that the cost is nil.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false,
+    "types": ["vitest/globals", "@testing-library/jest-dom"]
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    "vitest.setup.ts",
+    "vitest.config.mts"
+  ],
+  "exclude": ["node_modules", "out", ".next"]
+}

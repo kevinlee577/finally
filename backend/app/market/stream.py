@@ -14,21 +14,30 @@ from .cache import PriceCache
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/stream", tags=["streaming"])
+DEFAULT_STREAM_INTERVAL = 0.5
 
 
-def create_stream_router(price_cache: PriceCache) -> APIRouter:
+def create_stream_router(price_cache: PriceCache, interval: float | None = None) -> APIRouter:
     """Create the SSE streaming router with a reference to the price cache.
 
-    This factory pattern lets us inject the PriceCache without globals.
+    This factory pattern lets us inject the PriceCache without globals. The
+    router is built per call — a module-level one would accumulate a duplicate
+    /prices route every time the app is constructed (e.g. across tests).
+
+    `interval` is how often the generator checks the cache version counter. It
+    must track MARKET_TICK_SECONDS: the emit rate is the *slower* of the two, so
+    leaving this at 0.5s would cap clients at ~2 events/sec no matter how fast
+    the producer ticks (PLAN.md §12 "fast intervals for tests").
     """
+    router = APIRouter(prefix="/api/stream", tags=["streaming"])
+    poll_interval = interval if interval is not None else DEFAULT_STREAM_INTERVAL
 
     @router.get("/prices")
     async def stream_prices(request: Request) -> StreamingResponse:
         """SSE endpoint for live price updates.
 
-        Streams all tracked ticker prices every ~500ms. The client connects
-        with EventSource and receives events in the format:
+        Streams all tracked ticker prices whenever the cache changes. The client
+        connects with EventSource and receives events in the format:
 
             data: {"AAPL": {"ticker": "AAPL", "price": 190.50, ...}, ...}
 
@@ -36,7 +45,7 @@ def create_stream_router(price_cache: PriceCache) -> APIRouter:
         disconnection (EventSource built-in behavior).
         """
         return StreamingResponse(
-            _generate_events(price_cache, request),
+            _generate_events(price_cache, request, interval=poll_interval),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -51,7 +60,7 @@ def create_stream_router(price_cache: PriceCache) -> APIRouter:
 async def _generate_events(
     price_cache: PriceCache,
     request: Request,
-    interval: float = 0.5,
+    interval: float = DEFAULT_STREAM_INTERVAL,
 ) -> AsyncGenerator[str, None]:
     """Async generator that yields SSE-formatted price events.
 
